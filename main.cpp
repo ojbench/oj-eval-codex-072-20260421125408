@@ -159,6 +159,9 @@ int main() {
                 break; }
             case 0x03: { // LOAD
                 uint32_t addr = x[rs1] + (int32_t)imm_i;
+                // MMIO: 0x30000 status -> 1, 0x30004 data -> 0
+                if(addr == 0x30000){ setx(rd, 1); break; }
+                if(addr == 0x30004){ setx(rd, 0); break; }
                 uint32_t val=0;
                 switch(funct3){
                     case 0: val = (uint32_t)(int32_t)(int8_t)r8(addr); break;   // LB
@@ -172,6 +175,12 @@ int main() {
                 break; }
             case 0x23: { // STORE
                 uint32_t addr = x[rs1] + (int32_t)imm_s;
+                // MMIO output: write to 0x30004 prints low 8-bit char
+                if(addr == 0x30004){
+                    char ch = (char)(x[rs2] & 0xFF);
+                    cout << ch;
+                    break;
+                }
                 switch(funct3){
                     case 0: w8(addr, (uint8_t)(x[rs2]&0xFF)); break;  // SB
                     case 1: w16(addr, (uint16_t)(x[rs2]&0xFFFF)); break; // SH
@@ -190,7 +199,7 @@ int main() {
                     case 7: setx(rd, x[rs1] & imm_i); break; // ANDI
                     case 1: setx(rd, x[rs1] << shamt); break; // SLLI
                     case 5: {
-                        if((funct7>>1)==0x10) setx(rd, (uint32_t)((int32_t)x[rs1] >> shamt)); // SRAI
+                        if(((inst >> 30) & 1) == 1) setx(rd, (uint32_t)((int32_t)x[rs1] >> shamt)); // SRAI
                         else setx(rd, x[rs1] >> shamt); // SRLI
                         break; }
                     default: break;
@@ -216,9 +225,7 @@ int main() {
             case 0x73: { // SYSTEM: ECALL/EBREAK
                 uint32_t funct12 = (inst >> 20) & 0xFFF;
                 if(funct12==0x000 || funct12==0x001){
-                    // Halt: print a0 and exit
-                    int32_t ret = (int32_t)x[10];
-                    cout << ret << '\n';
+                    // Halt execution; output already printed via MMIO if any
                     return 0;
                 }
                 break; }
