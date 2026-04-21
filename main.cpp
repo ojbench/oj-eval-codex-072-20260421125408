@@ -105,6 +105,9 @@ int main() {
     // If no code at 0, try start at min_addr
     if(pc >= mem.size() || (r32(pc)==0 && min_addr!=UINT32_MAX)) pc = min_addr;
 
+    // Initialize stack pointer near top of memory
+    x[2] = (uint32_t)(MEM_SIZE - 64);
+
     const uint64_t MAX_STEPS = 400000000ull; // generous cap
     for(uint64_t step=0; step<MAX_STEPS; ++step){
         uint32_t inst = r32(pc);
@@ -206,18 +209,70 @@ int main() {
                 }
                 break; }
             case 0x33: { // OP
-                switch((funct7<<3)|funct3){
-                    case (0x00<<3)|0x0: setx(rd, x[rs1] + x[rs2]); break; // ADD
-                    case (0x20<<3)|0x0: setx(rd, x[rs1] - x[rs2]); break; // SUB
-                    case (0x00<<3)|0x1: setx(rd, x[rs1] << (x[rs2]&0x1F)); break; // SLL
-                    case (0x00<<3)|0x2: setx(rd, (int32_t)x[rs1] < (int32_t)x[rs2]); break; // SLT
-                    case (0x00<<3)|0x3: setx(rd, x[rs1] < x[rs2]); break; // SLTU
-                    case (0x00<<3)|0x4: setx(rd, x[rs1] ^ x[rs2]); break; // XOR
-                    case (0x00<<3)|0x5: setx(rd, x[rs1] >> (x[rs2]&0x1F)); break; // SRL
-                    case (0x20<<3)|0x5: setx(rd, (uint32_t)((int32_t)x[rs1] >> (x[rs2]&0x1F))); break; // SRA
-                    case (0x00<<3)|0x6: setx(rd, x[rs1] | x[rs2]); break; // OR
-                    case (0x00<<3)|0x7: setx(rd, x[rs1] & x[rs2]); break; // AND
-                    default: break;
+                if(funct7 == 0x01){ // M-extension
+                    uint32_t a = x[rs1], b = x[rs2];
+                    switch(funct3){
+                        case 0: { // MUL
+                            uint64_t r = (uint64_t)(int64_t)(int32_t)a * (int64_t)(int32_t)b;
+                            setx(rd, (uint32_t)r);
+                            break; }
+                        case 1: { // MULH (signed x signed)
+                            int64_t aa = (int64_t)(int32_t)a;
+                            int64_t bb = (int64_t)(int32_t)b;
+                            unsigned __int128 prod = (unsigned __int128)aa * (unsigned __int128)bb;
+                            uint32_t hi = (uint32_t)(prod >> 32);
+                            setx(rd, hi);
+                            break; }
+                        case 2: { // MULHSU (signed x unsigned)
+                            int64_t aa = (int64_t)(int32_t)a;
+                            uint64_t bb = (uint64_t)b;
+                            __int128 prod = (__int128)aa * (__int128)bb;
+                            uint32_t hi = (uint32_t)((unsigned __int128)prod >> 32);
+                            setx(rd, hi);
+                            break; }
+                        case 3: { // MULHU (unsigned x unsigned)
+                            unsigned __int128 prod = (unsigned __int128)(uint64_t)a * (unsigned __int128)(uint64_t)b;
+                            uint32_t hi = (uint32_t)(prod >> 32);
+                            setx(rd, hi);
+                            break; }
+                        case 4: { // DIV
+                            int32_t aa = (int32_t)a, bb = (int32_t)b;
+                            if(bb == 0) setx(rd, (uint32_t)-1);
+                            else if(aa == INT32_MIN && bb == -1) setx(rd, (uint32_t)INT32_MIN);
+                            else setx(rd, (uint32_t)(aa / bb));
+                            break; }
+                        case 5: { // DIVU
+                            uint32_t aa = a, bb = b;
+                            if(bb == 0) setx(rd, 0xFFFFFFFFu);
+                            else setx(rd, (uint32_t)(aa / bb));
+                            break; }
+                        case 6: { // REM
+                            int32_t aa = (int32_t)a, bb = (int32_t)b;
+                            if(bb == 0) setx(rd, (uint32_t)aa);
+                            else if(aa == INT32_MIN && bb == -1) setx(rd, 0);
+                            else setx(rd, (uint32_t)(aa % bb));
+                            break; }
+                        case 7: { // REMU
+                            uint32_t aa = a, bb = b;
+                            if(bb == 0) setx(rd, aa);
+                            else setx(rd, (uint32_t)(aa % bb));
+                            break; }
+                        default: break;
+                    }
+                } else {
+                    switch((funct7<<3)|funct3){
+                        case (0x00<<3)|0x0: setx(rd, x[rs1] + x[rs2]); break; // ADD
+                        case (0x20<<3)|0x0: setx(rd, x[rs1] - x[rs2]); break; // SUB
+                        case (0x00<<3)|0x1: setx(rd, x[rs1] << (x[rs2]&0x1F)); break; // SLL
+                        case (0x00<<3)|0x2: setx(rd, (int32_t)x[rs1] < (int32_t)x[rs2]); break; // SLT
+                        case (0x00<<3)|0x3: setx(rd, x[rs1] < x[rs2]); break; // SLTU
+                        case (0x00<<3)|0x4: setx(rd, x[rs1] ^ x[rs2]); break; // XOR
+                        case (0x00<<3)|0x5: setx(rd, x[rs1] >> (x[rs2]&0x1F)); break; // SRL
+                        case (0x20<<3)|0x5: setx(rd, (uint32_t)((int32_t)x[rs1] >> (x[rs2]&0x1F))); break; // SRA
+                        case (0x00<<3)|0x6: setx(rd, x[rs1] | x[rs2]); break; // OR
+                        case (0x00<<3)|0x7: setx(rd, x[rs1] & x[rs2]); break; // AND
+                        default: break;
+                    }
                 }
                 break; }
             case 0x0F: // FENCE/FENCE.I - no effect
