@@ -20,9 +20,8 @@ int main() {
         s = oss.str();
     }
 
-    // Parse .data format: lines like "@<addr>" followed by 32-bit hex words
-    // Store little-endian bytes into memory
-    vector<pair<uint32_t, uint32_t>> words; // (addr, word)
+    // Parse .data format: lines like "@<addr>" followed by byte tokens (2 hex chars per byte)
+    vector<pair<uint32_t, uint8_t>> bytes; // (addr, byte)
     uint64_t cur = 0;
     bool has_cur = false;
     size_t i = 0, n = s.size();
@@ -46,20 +45,18 @@ int main() {
             continue;
         }
         if(ishex(c)){
-            auto p = read_hex(8);
+            auto p = read_hex(2);
             if(p.first && has_cur){
-                uint32_t w = (uint32_t)p.second;
-                words.emplace_back((uint32_t)cur, w);
-                cur += 4;
-            } else {
-                // skip token
+                uint8_t b = (uint8_t)p.second;
+                bytes.emplace_back((uint32_t)cur, b);
+                cur += 1;
             }
             continue;
         }
         ++i;
     }
 
-    if(words.empty()){
+    if(bytes.empty()){
         // No data: nothing to run
         cout << 0 << '\n';
         return 0;
@@ -67,22 +64,17 @@ int main() {
 
     // Determine memory size
     uint32_t min_addr = UINT32_MAX, max_addr = 0;
-    for(auto &p: words){ min_addr = min(min_addr, p.first); max_addr = max(max_addr, p.first); }
-    uint64_t mem_size64 = (uint64_t)max_addr + 4;
+    for(auto &p: bytes){ min_addr = min(min_addr, p.first); max_addr = max(max_addr, p.first); }
+    uint64_t mem_size64 = (uint64_t)max_addr + 1;
     // add some headroom
     if(mem_size64 < (1ull<<24)) mem_size64 = (1ull<<24); // 16MB
     if(mem_size64 > (1ull<<28)) mem_size64 = (1ull<<28); // cap 256MB
     size_t MEM_SIZE = (size_t)mem_size64;
     vector<uint8_t> mem(MEM_SIZE, 0);
-    for(auto &p: words){
+    for(auto &p: bytes){
         uint32_t a = p.first;
-        uint32_t w = p.second;
-        if((size_t)a + 3 < mem.size()){
-            mem[a+0] = (uint8_t)(w & 0xFF);
-            mem[a+1] = (uint8_t)((w >> 8) & 0xFF);
-            mem[a+2] = (uint8_t)((w >> 16) & 0xFF);
-            mem[a+3] = (uint8_t)((w >> 24) & 0xFF);
-        }
+        uint8_t b = p.second;
+        if((size_t)a < mem.size()) mem[a] = b;
     }
 
     auto r8 = [&](uint32_t addr)->uint8_t{
